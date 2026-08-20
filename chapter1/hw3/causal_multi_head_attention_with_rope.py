@@ -6,7 +6,7 @@ try:
 except ImportError:
     from rope import RoPE
 
-class CasualMultiHeadAttentionWithRoPE(nn.Module):
+class CausalMultiHeadAttentionWithRoPE(nn.Module):
     def __init__(self , d_model : int , n_heads : int , max_seq_len : int , theta : float , device = None):
         super().__init__()
         self.d_model = d_model

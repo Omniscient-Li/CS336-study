@@ -11,7 +11,7 @@ import torch.nn.functional as F
 3.最后把所有的头按照最后一个维度concat起来，然后做一次线性变换。
 """
 
-class CausalMultiHeadAtention(nn.Module):
+class CausalMultiHeadAttention(nn.Module):
     """
     CausalMultiHeadAttention 是因果多头注意力，它通过将输入的稠密向量与输入的稠密向量进行点积来得到输出。
     每个头的公式都是：
@@ -29,7 +29,7 @@ class CausalMultiHeadAtention(nn.Module):
         out: (batch_size, seq_len, d_model) 输出的稠密向量
     """
     def __init__(self , d_model , n_heads):
-        super(CausalMultiHeadAtention , self).__init__()
+        super(CausalMultiHeadAttention , self).__init__()
         self.d_model = d_model
         self.n_heads = n_heads
         self.head_dim = d_model // n_heads

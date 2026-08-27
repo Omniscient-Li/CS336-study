@@ -21,12 +21,14 @@ class FakeTokenizer:
         self.bytes_to_id = {"<|endoftext|>".encode("utf-8"): 9999}
 
 
-class FakeModel:
+class FakeModel(torch.nn.Module):
+    """decode_token 会调 model.parameters() 拿设备，所以假模型也要是真 nn.Module"""
     def __init__(self, mode="random"):
+        super().__init__()
         self.mode = mode
 
     def eval(self):
-        pass
+        return self.train(False)
 
     def __call__(self, x):
         out = torch.randn(1, x.shape[1], 10000)  # (batch, seq, vocab) 的随机 logits

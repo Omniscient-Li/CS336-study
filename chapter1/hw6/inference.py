@@ -50,6 +50,10 @@ def decode_token(input_tokens , model , tokenizer , max_tokens_to_generate , top
     model.eval() #设置为评估模式不要dropout
 
     input_tokens = torch.tensor(input_tokens).unsqueeze(0)  # 加 batch 维：(seq,) → (1, seq)
+    # 放到和模型相同的设备上（模型在 GPU 而输入默认在 CPU 会 device mismatch）；
+    # next(..., torch.empty(0)) 是给没有参数的假模型兜底，取到 cpu
+    model_device = next(model.parameters() , torch.empty(0)).device
+    input_tokens = input_tokens.to(model_device)
     # 查 EOS 的 id：和 hw2 encode 里特殊 token 的查法一致（词表的键是 utf-8 字节）。
     # 用 .get 是防止词表里没训练进这个特殊 token 时直接 KeyError
     eos_token_id = tokenizer.bytes_to_id.get("<|endoftext|>".encode("utf-8"))

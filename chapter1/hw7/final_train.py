@@ -103,6 +103,9 @@ run = wandb.init(project="cs336_final_train",
                 # Logging & Checkpointing
                 "log_interval": 20,
                 "val_interval": 20,
+                # 验证集 7.1M token ≈ 22 万个 batch，全量评估要 9+ 小时（实测踩坑）；
+                # 只评估前 max_val_batches 批（每批 8192 token，500 批 = 4M token ≈ 2 分钟，足够有代表性）
+                "max_val_batches": 500,
                 "checkpoint_interval": 60,
                 "checkpoint_dir": "checkpoints",
             }
@@ -198,14 +201,20 @@ for epoch in range(config["epochs"]):
     if (epoch+1) % config["val_interval"] == 0:
         model.eval()
         val_losses = []  # 收集所有 batch 的 loss，最后取平均 log 一次（之前每个 batch 都 log 且都叫 "loss"）
+        max_val_batches = config.get("max_val_batches", 500)
+        print(f"Epoch {epoch}: 开始验证集评估（只取前 {max_val_batches} 批；全量 22 万批要 9+ 小时，别等）")
         with torch.no_grad():
-            for x, y in valid_data_loader.get_valid_batch_data_iter():
+            for i, (x, y) in enumerate(valid_data_loader.get_valid_batch_data_iter()):
+                if i >= max_val_batches:
+                    break
                 x = x.to(device)
                 y = y.to(device)
                 logits = model(x)
                 loss = F.cross_entropy(logits.view(-1, vocab_size), y.view(-1))
                 val_losses.append(loss.item())
-        wandb.log({"epoch": epoch, "val_loss": sum(val_losses) / len(val_losses)})
+        val_loss = sum(val_losses) / len(val_losses)
+        print(f"Epoch {epoch} val_loss: {val_loss:.4f}（{len(val_losses)} 批的平均）")
+        wandb.log({"epoch": epoch, "val_loss": val_loss})
         model.train()  # 验证完切回训练模式（之前忘了，后面 epoch 会在 eval 模式下训练）
     # print("经过验证集")
     if (epoch+1) % config["checkpoint_interval"] == 0:

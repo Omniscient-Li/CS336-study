@@ -33,6 +33,17 @@ A100 实测（Brev 共享实例，2026-08-27）：
 - 生成质量：prompt "Once upon a time" 生成连贯的 TinyStories 风格故事（仅个别生造词）
 - 踩坑修复：验证集全量评估 ≈ 22 万个 batch（实测要 9+ 小时）→ `final_train.py` 改为只评估前 `max_val_batches=500` 批（4M token ≈ 2 分钟），并把 val_loss 打印到终端
 
+### Chapter 2 · Assignment 2: Systems (Attention)
+
+| 作业 | 内容 | 文件 | 状态 |
+|------|------|------|------|
+| hw1 | FlashAttention2 PyTorch 版：分块 online-softmax 前向 + 反向重算（保存 q,k,v,O,L、不存 S/P），支持 causal 掩码 | `chapter2/hw1/flashattention_autograd_function_pytorch.py` | ✅ 官方测试通过 + gradcheck |
+
+官方测试结果：
+- hw1：**2 passed**（`test_flash_forward_pass_pytorch` + `test_flash_backward_pytorch`）。官方接口约定：`forward` 只返回 O（L 通过 `save_for_backward` 传递，测试按形状 `(batch, Nq)` 从 saved_tensors 提取）、`backward(ctx, dO)` 单参数、参数名 `is_causal`；官方用例不测 causal，配套对拍脚本 `_verify_flash.py` 补上 causal 前向/反向对拍（误差 ~1e-7）+ float64 gradcheck 全过
+- 测试环境：官方测试取自 [stanford-cs336/assignment2-systems](https://github.com/stanford-cs336/assignment2-systems)，放在 `chapter2/hw1/tests/`，适配器按文件路径加载用户实现；运行 `cd chapter2/hw1 && uv run pytest tests/test_attention.py -k pytorch -v`（`-k` 过滤 4 个 triton 用例，Triton 版尚未实现）
+- Triton 版（hw1 后续部分）：目录内有 `triton_causal_forawrdflash_attention.py` 等参考实现，待完成
+
 ## 参考资料
 
 - 官方讲义与代码：[stanford-cs336/assignment1-basics](https://github.com/stanford-cs336/assignment1-basics)

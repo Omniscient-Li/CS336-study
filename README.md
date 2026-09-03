@@ -37,12 +37,13 @@ A100 实测（Brev 共享实例，2026-08-27）：
 
 | 作业 | 内容 | 文件 | 状态 |
 |------|------|------|------|
-| hw1 | FlashAttention2 PyTorch 版：分块 online-softmax 前向 + 反向重算（保存 q,k,v,O,L、不存 S/P），支持 causal 掩码 | `chapter2/hw1/flashattention_autograd_function_pytorch.py` | ✅ 官方测试通过 + gradcheck |
+| hw1 | FlashAttention2：PyTorch 分块版（online-softmax 前向 + 反向重算）+ Triton 前向/反向 kernel（含 causal 掩码）+ 训练计时/Profiling | `chapter2/hw1/` | ✅ 官方测试 6 用例全绿 + A100 计时/Profile 实测 |
 
-官方测试结果：
-- hw1：**2 passed**（`test_flash_forward_pass_pytorch` + `test_flash_backward_pytorch`）。官方接口约定：`forward` 只返回 O（L 通过 `save_for_backward` 传递，测试按形状 `(batch, Nq)` 从 saved_tensors 提取）、`backward(ctx, dO)` 单参数、参数名 `is_causal`；官方用例不测 causal，配套对拍脚本 `_verify_flash.py` 补上 causal 前向/反向对拍（误差 ~1e-7）+ float64 gradcheck 全过
-- 测试环境：官方测试取自 [stanford-cs336/assignment2-systems](https://github.com/stanford-cs336/assignment2-systems)，放在 `chapter2/hw1/tests/`，适配器按文件路径加载用户实现；运行 `cd chapter2/hw1 && uv run pytest tests/test_attention.py -k pytorch -v`（`-k` 过滤 4 个 triton 用例，Triton 版尚未实现）
-- Triton 版（hw1 后续部分）：目录内有 `triton_causal_forawrdflash_attention.py` 等参考实现，待完成
+官方测试结果（hw1 共 6 个用例，官方测试取自 [stanford-cs336/assignment2-systems](https://github.com/stanford-cs336/assignment2-systems)，放在 `chapter2/hw1/tests/`，适配器按文件路径加载用户实现）：
+- **PyTorch 版 2/2**（本地 Windows + MX230）：`test_flash_forward_pass_pytorch` + `test_flash_backward_pytorch`。实现要点：分块 online-softmax 前向（块间 m/l 校正）；反向重算——只保存 q,k,v,O,L，不物化 S/P；`forward` 只返回 O（L 经 `save_for_backward` 传递）、`backward(ctx, dO)` 单参数、参数名 `is_causal`、causal 掩码 -1e6。对拍脚本 `_verify_flash.py`（causal 前向/反向对拍 ~1e-7 + float64 gradcheck）
+- **Triton 版 4/4**（A100 + Triton 3.7，官方容差 rtol/atol=1e-2）：`test_flash_forward_pass_triton[False/True]` + `test_flash_backward_triton[False/True]`。前向文件 `triton_causal_forawrdflash_attention.py`（grid=(Tq, batch)，tl.make_block_ptr 分块 + online softmax）；完整前向+反向文件 `triton_backward.py`——backward grid 按 K tile 并行，dQ 用 `tl.atomic_add` 跨块累积、dK/dV 块内寄存器累加一次写回，D = rowsum(dO∘O) 技巧；Triton 反向为官方 OPTIONAL 加分题。注意 `tests/adapters.py` 默认指向前向文件（无 backward），跑 triton 全量需先 `sed -i 's/triton_causal_forawrdflash_attention/triton_backward/g' tests/adapters.py`
+- **计时 + Profiling**（A100 实测）：`train_timeit.py` 完整 40 epochs——每 epoch 136.7s（波动 <0.2%，计时只包训练步），batch 4 ≈ 15K tokens/s；NVTX 版 `train_nvtx.py` 配合 Nsight Systems 完成首个 profile（backward 43.8% / forward 30.8% / optimizer_step 22.5% / clip_gradient 2.9%）
+- ⏳ **hw1 剩余交付物**：`flash_benchmarking.py`（官方 5 分题：`triton.testing.do_bench` 对比 Triton 版 vs PyTorch 版前向/反向/端到端延迟，B200 + batch 1 + causal，序列长度 128~65536 × 维度 16~128 × bf16/fp32 网格）+ 正式 writeup
 
 ## 参考资料
 

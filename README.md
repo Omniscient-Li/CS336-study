@@ -33,17 +33,27 @@ A100 实测（Brev 共享实例，2026-08-27）：
 - 生成质量：prompt "Once upon a time" 生成连贯的 TinyStories 风格故事（仅个别生造词）
 - 踩坑修复：验证集全量评估 ≈ 22 万个 batch（实测要 9+ 小时）→ `final_train.py` 改为只评估前 `max_val_batches=500` 批（4M token ≈ 2 分钟），并把 val_loss 打印到终端
 
-### Chapter 2 · Assignment 2: Systems (Attention)
+### Chapter 2 · Assignment 2: Systems
 
 | 作业 | 内容 | 文件 | 状态 |
 |------|------|------|------|
 | hw1 | FlashAttention2：PyTorch 分块版（online-softmax 前向 + 反向重算）+ Triton 前向/反向 kernel（含 causal 掩码）+ 训练计时/Profiling | `chapter2/hw1/` | ✅ 官方测试 6 用例全绿 + A100 计时/Profile 实测 |
+| hw2-1 | 单机多进程 all-reduce 通信基准（spawn 多进程、Queue 结果回传、CSV 汇总） | `chapter2/hw2/hw2-1/hw2-1.py` | ✅ A100 跑通 12 组配置（gloo 版，单卡） |
 
 官方测试结果（hw1 共 6 个用例，官方测试取自 [stanford-cs336/assignment2-systems](https://github.com/stanford-cs336/assignment2-systems)，放在 `chapter2/hw1/tests/`，适配器按文件路径加载用户实现）：
 - **PyTorch 版 2/2**（本地 Windows + MX230）：`test_flash_forward_pass_pytorch` + `test_flash_backward_pytorch`。实现要点：分块 online-softmax 前向（块间 m/l 校正）；反向重算——只保存 q,k,v,O,L，不物化 S/P；`forward` 只返回 O（L 经 `save_for_backward` 传递）、`backward(ctx, dO)` 单参数、参数名 `is_causal`、causal 掩码 -1e6。对拍脚本 `_verify_flash.py`（causal 前向/反向对拍 ~1e-7 + float64 gradcheck）
 - **Triton 版 4/4**（A100 + Triton 3.7，官方容差 rtol/atol=1e-2）：`test_flash_forward_pass_triton[False/True]` + `test_flash_backward_triton[False/True]`。前向文件 `triton_causal_forawrdflash_attention.py`（grid=(Tq, batch)，tl.make_block_ptr 分块 + online softmax）；完整前向+反向文件 `triton_backward.py`——backward grid 按 K tile 并行，dQ 用 `tl.atomic_add` 跨块累积、dK/dV 块内寄存器累加一次写回，D = rowsum(dO∘O) 技巧；Triton 反向为官方 OPTIONAL 加分题。注意 `tests/adapters.py` 默认指向前向文件（无 backward），跑 triton 全量需先 `sed -i 's/triton_causal_forawrdflash_attention/triton_backward/g' tests/adapters.py`
 - **计时 + Profiling**（A100 实测）：`train_timeit.py` 完整 40 epochs——每 epoch 136.7s（波动 <0.2%，计时只包训练步），batch 4 ≈ 15K tokens/s；NVTX 版 `train_nvtx.py` 配合 Nsight Systems 完成首个 profile（backward 43.8% / forward 30.8% / optimizer_step 22.5% / clip_gradient 2.9%）
 - ⏳ **hw1 剩余交付物**：`flash_benchmarking.py`（官方 5 分题：`triton.testing.do_bench` 对比 Triton 版 vs PyTorch 版前向/反向/端到端延迟，B200 + batch 1 + causal，序列长度 128~65536 × 维度 16~128 × bf16/fp32 网格）+ 正式 writeup
+
+#### hw2-1 · 单机多进程 all-reduce 基准（Problem: distributed_communication_single_node）
+
+- 官方要求：world_size ∈ {2,4,6} × float32 张量 ∈ {1,10,100,1000}MB，测 all-reduce 延迟/带宽并出图表
+- 实现：`torch.multiprocessing.spawn` 双循环 + `mp.get_context("spawn").Queue()` 回传结果（spawn 不传回函数返回值）+ 预热 5 次/计时 20 次 + 逐 rank 明细与聚合汇总双 CSV（`all_reduce_benchmark_detail/summary.csv`）
+- 结果（A100 单卡，gloo + CUDA 张量）：1GB all-reduce 2 进程 1.21s → 4 进程 2.18s → 6 进程 2.79s；带宽仅 0.28~0.86 GB/s。完整 12 组见 CSV
+- 结论：① 时间随张量大小线性（ring all-reduce 每 rank 收发 ~2(N−1)/N 的数据量）② 时间随进程数近似线性，单卡共享时争抢进一步放大开销 ③ gloo 走 GPU→CPU→GPU 中转，比 NCCL 直连慢约两个数量级——正是官方强调 GPU 训练必须用 NCCL 的数据佐证
+- ⚠️ 口径说明：官方要求 2/4/6 **张 GPU** 的 NCCL 数据；A100 单卡上 NCCL 拒绝多进程（`Duplicate GPU detected`），故本组为 gloo 替代版，真实多卡数据待多 GPU 实例（脚本已就绪，多卡时去掉 `--backend gloo` 即可）
+- 踩坑记录：Windows torch 无 libuv → 手动 `dist.TCPStore(..., use_libuv=False)`；单卡 `set_device(rank)` 越界 → `rank % device_count`；`duration = end_time = start_time` 链式赋值 bug → 减法
 
 ## 参考资料
 

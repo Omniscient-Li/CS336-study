@@ -33,6 +33,37 @@ A100 实测（Brev 共享实例，2026-08-27）：
 - 生成质量：prompt "Once upon a time" 生成连贯的 TinyStories 风格故事（仅个别生造词）
 - 踩坑修复：验证集全量评估 ≈ 22 万个 batch（实测要 9+ 小时）→ `final_train.py` 改为只评估前 `max_val_batches=500` 批（4M token ≈ 2 分钟），并把 val_loss 打印到终端
 
+#### Llama 2 从零实现（扩展练习，参考 hkproj/pytorch-llama）
+
+从零实现 Meta 官方 LLaMA 2 架构（代码在 `chapter1/Llama_2/`），跑通 7B 推理与 tiny 训练两条链路：
+
+| 文件 | 内容 |
+|------|------|
+| `model.py` | RMSNorm / RoPE（复数旋转）/ GQA（repeat_kv）/ SwiGLU FFN / KV Cache / 预归一化 Transformer——键名跟随官方 checkpoint（`tok_embeddings.weight`，加载 7B 权重需 strict 匹配） |
+| `train.py` | 训练流水线：不相交分块数据集、因果掩码全序列前向、fp16 + GradScaler、AdamW + 余弦 warmup、梯度裁剪、checkpoint |
+| `inference.py` | 加载 Meta 原始格式 checkpoint（consolidated.00.pth + params.json + tokenizer.model）、温度 + top-p 采样、批量生成 |
+| `config.py` | tiny 配置预设（命令行参数 → ModelArgs） |
+
+实测结果（A100-SXM4-80GB）：
+- **7B 推理**：fp16 加载 13.5GB 权重 5.9s，batch 4 生成 ≈ 35 tok/s，4 个 prompt（常识解释 / few-shot 翻译 / 段子）输出全部连贯
+- **tiny 训练**：60M 参数（dim 512 / 8 层 / 8 头 / 32K 词表，embedding 占 33M），TinyStories 100MB 子集（28.5M token），fp16 + batch 32 ≈ 0.1 秒/步，3 epochs（5220 步）约 10 分钟，loss 10.55 → 1.40
+- 踩坑：TextDataset 用 stride-1 滑窗时 100MB 数据膨胀成 178 万样本/epoch ≈ 370 小时；改不相交分块（`__len__ = len(tokens) // seq_len - 1`）后 1740 步/epoch
+
+权重获取：HF 上 Llama-2-7b 需申请 Meta 审批；可用 ModelScope 的原始格式镜像替代（`shakechen/Llama-2-7b`，consolidated.00.pth + params.json + tokenizer.model，OSS 直链支持断点续传）：
+
+```bash
+curl -L -C - -o consolidated.00.pth 'https://modelscope.cn/api/v1/models/shakechen/Llama-2-7b/repo?Revision=master&FilePath=consolidated.00.pth'
+```
+
+```bash
+# 7B 推理：权重放 llama-2-7b/ 子目录，tokenizer.model 放同目录
+cd chapter1/Llama_2 && python inference.py
+
+# tiny 训练（需 sentencepiece 的 tokenizer.model + 文本语料）
+python train.py --data_path data/tinystories_100m.txt --tokenizer_path tokenizer.model \
+    --seq_len 512 --batch_size 32 --epochs 3 --fp16 --log_every 50
+```
+
 ### Chapter 2 · Assignment 2: Systems
 
 | 作业 | 内容 | 文件 | 状态 |

@@ -46,7 +46,7 @@ A100 实测（Brev 共享实例，2026-08-27）：
 
 实测结果（A100-SXM4-80GB）：
 - **7B 推理**：fp16 加载 13.5GB 权重 5.9s，batch 4 生成 ≈ 35 tok/s，4 个 prompt（常识解释 / few-shot 翻译 / 段子）输出全部连贯
-- **tiny 训练**：60M 参数（dim 512 / 8 层 / 8 头 / 32K 词表，embedding 占 33M），TinyStories 100MB 子集（28.5M token），fp16 + batch 32 ≈ 0.1 秒/步，3 epochs（5220 步）约 10 分钟，loss 10.55 → 1.40
+- **tiny 训练**：60M 参数（dim 512 / 8 层 / 8 头 / 32K 词表，embedding 占 33M），TinyStories 100MB 子集（28.5M token），fp16 + batch 32 ≈ 0.1 秒/步（9.4 it/s），3 epochs（5220 步）约 10 分钟（~185s/epoch），每 epoch loss：10.55 → 2.76 → 1.58 → **1.40**（初始随机基线 ≈ ln(32000) = 10.37）
 - 踩坑：TextDataset 用 stride-1 滑窗时 100MB 数据膨胀成 178 万样本/epoch ≈ 370 小时；改不相交分块（`__len__ = len(tokens) // seq_len - 1`）后 1740 步/epoch
 
 权重获取：HF 上 Llama-2-7b 需申请 Meta 审批；可用 ModelScope 的原始格式镜像替代（`shakechen/Llama-2-7b`，consolidated.00.pth + params.json + tokenizer.model，OSS 直链支持断点续传）：

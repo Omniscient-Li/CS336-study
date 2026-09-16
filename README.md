@@ -70,6 +70,7 @@ python train.py --data_path data/tinystories_100m.txt --tokenizer_path tokenizer
 |------|------|------|------|
 | hw1 | FlashAttention2：PyTorch 分块版（online-softmax 前向 + 反向重算）+ Triton 前向/反向 kernel（含 causal 掩码）+ 训练计时/Profiling | `chapter2/hw1/` | ✅ 官方测试 6 用例全绿 + A100 计时/Profile 实测 |
 | hw2-1 | 单机多进程 all-reduce 通信基准（spawn 多进程、Queue 结果回传、CSV 汇总） | `chapter2/hw2/hw2-1/hw2-1.py` | ✅ A100 跑通 12 组配置（gloo 版，单卡） |
+| hw2-2 | naive DDP（参数广播 + 梯度 all-reduce 平均）+ 单机训练基线 | `chapter2/hw2/hw2-2/` | 🔶 自研脚本 A100 双进程跑通；官方 test_ddp.py 待做 |
 
 官方测试结果（hw1 共 6 个用例，官方测试取自 [stanford-cs336/assignment2-systems](https://github.com/stanford-cs336/assignment2-systems)，放在 `chapter2/hw1/tests/`，适配器按文件路径加载用户实现）：
 - **PyTorch 版 2/2**（本地 Windows + MX230）：`test_flash_forward_pass_pytorch` + `test_flash_backward_pytorch`。实现要点：分块 online-softmax 前向（块间 m/l 校正）；反向重算——只保存 q,k,v,O,L，不物化 S/P；`forward` 只返回 O（L 经 `save_for_backward` 传递）、`backward(ctx, dO)` 单参数、参数名 `is_causal`、causal 掩码 -1e6。对拍脚本 `_verify_flash.py`（causal 前向/反向对拍 ~1e-7 + float64 gradcheck）
@@ -85,6 +86,15 @@ python train.py --data_path data/tinystories_100m.txt --tokenizer_path tokenizer
 - 结论：① 时间随张量大小线性（ring all-reduce 每 rank 收发 ~2(N−1)/N 的数据量）② 时间随进程数近似线性，单卡共享时争抢进一步放大开销 ③ gloo 走 GPU→CPU→GPU 中转，比 NCCL 直连慢约两个数量级——正是官方强调 GPU 训练必须用 NCCL 的数据佐证
 - ⚠️ 口径说明：官方要求 2/4/6 **张 GPU** 的 NCCL 数据；A100 单卡上 NCCL 拒绝多进程（`Duplicate GPU detected`），故本组为 gloo 替代版，真实多卡数据待多 GPU 实例（脚本已就绪，多卡时去掉 `--backend gloo` 即可）
 - 踩坑记录：Windows torch 无 libuv → 手动 `dist.TCPStore(..., use_libuv=False)`；单卡 `set_device(rank)` 越界 → `rank % device_count`；`duration = end_time = start_time` 链式赋值 bug → 减法
+
+#### hw2-2 · naive DDP（Problem: naive_data_parallel）
+
+- 官方要求：实现 `get_ddp` + `ddp_on_after_backward` 接口，通过官方 test_ddp.py（ToyModel + ToyModelWithTiedWeights，gloo + CPU，验证 DDP 与非并行基线逐元素一致）
+- 自研训练脚本（A100 实测，2026-09-16）：
+  - `one_node_train.py` 单机基线：MNIST 2 epochs（938 步/epoch），初始 loss 2.286 ≈ ln(10) 随机基线 → epoch 2 降至 0.03~0.19
+  - `ddp_model.py` naive DDP 四步：broadcast 初始参数（rank 0 → 全部）→ 各 rank 用本地数据子集前向/反向 → 梯度 all-reduce SUM ÷ world_size → step；2 进程 × 各 30000 样本（全局 batch 128）；两 rank 初始 loss 2.3248 / 2.3208 仅差 0.004 = **广播生效的直接证据**；loss 收敛至 0.01~0.18
+- 踩坑：① 单卡实例 NCCL 不可用（rank 1 无 cuda:1 + "Duplicate GPU detected"）→ `gpu_id = rank % device_count` + backend 换 gloo（同卡多进程允许）② `torch.device("cuda : 0")` 冒号后带空格 → `Invalid device string` ③ 变量名拼错作为 DataLoader 关键字参数 → TypeError（普通赋值能跑、关键字参数必须匹配函数签名）④ Adam optimizer.state 惰性创建，训练前"同步优化器"是死代码
+- ⏳ 待办：官方接口实现（get_ddp 构造时广播 requires_grad 参数 + ddp_on_after_backward 梯度同步）→ 改 `tests/adapters.py` → test_ddp.py 全过 → writeup
 
 ## 参考资料
 

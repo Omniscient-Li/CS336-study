@@ -71,6 +71,7 @@ python train.py --data_path data/tinystories_100m.txt --tokenizer_path tokenizer
 | hw1 | FlashAttention2：PyTorch 分块版（online-softmax 前向 + 反向重算）+ Triton 前向/反向 kernel（含 causal 掩码）+ 训练计时/Profiling | `chapter2/hw1/` | ✅ 官方测试 6 用例全绿 + A100 计时/Profile 实测 |
 | hw2-1 | 单机多进程 all-reduce 通信基准（spawn 多进程、Queue 结果回传、CSV 汇总） | `chapter2/hw2/hw2-1/hw2-1.py` | ✅ A100 跑通 12 组配置（gloo 版，单卡） |
 | hw2-2 | naive DDP（参数广播 + 梯度 all-reduce 平均）+ 单机训练基线 | `chapter2/hw2/hw2-2/` | 🔶 自研脚本 A100 双进程跑通；官方 test_ddp.py 待做 |
+| hw2-3 | bucketed overlap DDP（梯度装桶 + hook 触发 + 异步 all-reduce，通信与反向计算重叠） | `chapter2/hw2/hw2-3/` | ✅ A100 对照验证通过（5 轮参数与单机基线逐元素一致） |
 
 官方测试结果（hw1 共 6 个用例，官方测试取自 [stanford-cs336/assignment2-systems](https://github.com/stanford-cs336/assignment2-systems)，放在 `chapter2/hw1/tests/`，适配器按文件路径加载用户实现）：
 - **PyTorch 版 2/2**（本地 Windows + MX230）：`test_flash_forward_pass_pytorch` + `test_flash_backward_pytorch`。实现要点：分块 online-softmax 前向（块间 m/l 校正）；反向重算——只保存 q,k,v,O,L，不物化 S/P；`forward` 只返回 O（L 经 `save_for_backward` 传递）、`backward(ctx, dO)` 单参数、参数名 `is_causal`、causal 掩码 -1e6。对拍脚本 `_verify_flash.py`（causal 前向/反向对拍 ~1e-7 + float64 gradcheck）
@@ -95,6 +96,14 @@ python train.py --data_path data/tinystories_100m.txt --tokenizer_path tokenizer
   - `ddp_model.py` naive DDP 四步：broadcast 初始参数（rank 0 → 全部）→ 各 rank 用本地数据子集前向/反向 → 梯度 all-reduce SUM ÷ world_size → step；2 进程 × 各 30000 样本（全局 batch 128）；两 rank 初始 loss 2.3248 / 2.3208 仅差 0.004 = **广播生效的直接证据**；loss 收敛至 0.01~0.18
 - 踩坑：① 单卡实例 NCCL 不可用（rank 1 无 cuda:1 + "Duplicate GPU detected"）→ `gpu_id = rank % device_count` + backend 换 gloo（同卡多进程允许）② `torch.device("cuda : 0")` 冒号后带空格 → `Invalid device string` ③ 变量名拼错作为 DataLoader 关键字参数 → TypeError（普通赋值能跑、关键字参数必须匹配函数签名）④ Adam optimizer.state 惰性创建，训练前"同步优化器"是死代码
 - ⏳ 待办：官方接口实现（get_ddp 构造时广播 requires_grad 参数 + ddp_on_after_backward 梯度同步）→ 改 `tests/adapters.py` → test_ddp.py 全过 → writeup
+
+#### hw2-3 · bucketed overlap DDP（Problem: overlap_comm_with_backprop）
+
+- 官方要求：get_ddp 容器实现"通信与反向计算重叠"（官方 `get_ddp` docstring: "overlaps communication with backprop computation"）
+- 实现（`ddp_overlap_bucketed.py`）：① 参数按大小装桶（`reversed(parameters())` 顺序——最后一层梯度最先就绪，先入桶先触发）② 每桶梯度算齐（ready_params 计数）即触发：拷贝进扁平 buffer → 异步 all-reduce（`async_op=True` 不等待，通信与剩余层的反向计算重叠）③ `queue_callback` 保证 delayed_sync 在完整 backward 结束后执行 ④ `finish_gradient_synchronization` 统一 wait + ÷world_size + 写回 param.grad
+- A100 对照验证（`verify_ddp_overlap.py`，2026-09-18）：gloo + CPU 2 进程（官方测试同款配置），MNIST 20 样本 × 5 轮——非并行基线（全量 20 样本）vs DDP（每 rank 10 样本 disjoint），**每轮 step 后参数逐元素一致（atol 1e-6）**；0.01MB 小桶强制 6 个参数切成 4 桶，bucketing 逻辑生效
+- 踩坑：① `def forward` 嵌套进 `__init__`（hw2-2 同款坑复发）② 缺最后一层 Linear（`[:-1]` 后直接 log_softmax，输出 128 维对不上 10 类标签）③ `bucket_size_bytes` 未做 MB→字节换算 ④ `apend` 拼写 ⑤ `_reigster_hook` 定义与 `_register_hook` 调用不匹配 ⑥ `torch.autograd.Variable._execution_engine.queue_callback` 私有 API 在 torch 2.12 可用
+- ⏳ 待办：接入官方 `get_ddp` / `ddp_on_after_backward` 适配器跑 test_ddp.py；计时对比 naive vs bucketed overlap 的通信重叠收益（writeup 材料）
 
 ## 参考资料
 

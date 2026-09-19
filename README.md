@@ -105,6 +105,20 @@ python train.py --data_path data/tinystories_100m.txt --tokenizer_path tokenizer
 - 踩坑：① `def forward` 嵌套进 `__init__`（hw2-2 同款坑复发）② 缺最后一层 Linear（`[:-1]` 后直接 log_softmax，输出 128 维对不上 10 类标签）③ `bucket_size_bytes` 未做 MB→字节换算 ④ `apend` 拼写 ⑤ `_reigster_hook` 定义与 `_register_hook` 调用不匹配 ⑥ `torch.autograd.Variable._execution_engine.queue_callback` 私有 API 在 torch 2.12 可用
 - ⏳ 待办：接入官方 `get_ddp` / `ddp_on_after_backward` 适配器跑 test_ddp.py；计时对比 naive vs bucketed overlap 的通信重叠收益（writeup 材料）
 
+### Chapter 3 · Scaling Laws（isoFLOP 曲线）
+
+| 作业 | 内容 | 文件 | 状态 |
+|------|------|------|------|
+| isoFLOP | Chinchilla 缩放定律：isoFLOP 数据解析 → 每个 C 取最小 loss → log-log 幂律拟合 N_opt ∝ C^a → 外推 | `chapter3/hw/isoflop.py` | ✅ A100 跑通 |
+
+#### isoFLOP 曲线与 Chinchilla 缩放定律
+
+- 数据：9 个计算预算 C ∈ [6e18, 3e21] FLOPs × 8 个 (N, loss) 扫描点共 72 条（`chapter3/data/isoflops_curves.json`，形态同 Chinchilla 论文 Fig. 4）
+- 方法：每组 C 内按 final_loss 升序排序取 `[0]` → 9 个最优点 (C, N, loss) → 幂律 `N = α·C^a` 两边取 log 变线性（`log N = log α + a·log C`；C 跨 3 个数量级，log 空间各点权重均衡）→ `scipy.optimize.curve_fit`
+- 拟合结果（A100 实测，2026-09-19）：**N_opt = 1.16 · C^0.4687**，指数与 Chinchilla 论文 a ≈ 0.49 高度吻合；拟合图 `chapter3/hw/power_law_fit.png`（300 dpi）
+- 外推 C = 1e23 FLOPs → **N ≈ 70B 参数，D = C/(6N) ≈ 238B tokens**（与 Llama 3 70B / 15T tokens 的量级互相印证）
+- 踩坑：① 相对路径 `'data/...'` 取决于启动目录（数据在 `chapter3/data` 而脚本在 `chapter3/hw`）→ `Path(__file__).parent.parent` 定位 ② Windows 绝对路径单反斜杠是转义字符（SyntaxWarning，路径含 `\t`/`\n` 时会直接损坏）③ 元组漏放 parameters 字段 → final_loss 被当成 N 拟合、外推 D 全错 ④ `plt.figuer` 拼写错误
+
 ## 参考资料
 
 - 官方讲义与代码：[stanford-cs336/assignment1-basics](https://github.com/stanford-cs336/assignment1-basics)

@@ -137,9 +137,9 @@ Triton GPU kernel 编程入门（参考 [triton-lang/triton 官方教程](https:
 - 官方讲义与代码：
   - Assignment 1（Basics）：[stanford-cs336/assignment1-basics](https://github.com/stanford-cs336/assignment1-basics)
   - Assignment 2（Systems）：[stanford-cs336/assignment2-systems](https://github.com/stanford-cs336/assignment2-systems)
-  - Assignment 3：链接待补充
+  - Assignment 3（Scaling）：[stanford-cs336/assignment3-scaling](https://github.com/stanford-cs336/assignment3-scaling)
   - Assignment 4：暂不做
-  - Assignment 5：链接待补充
+  - Assignment 5（Alignment）：[stanford-cs336/assignment5-alignment](https://github.com/stanford-cs336/assignment5-alignment)
 - 学习思路与代码参考：[weiruihhh/cs336_note_and_hw](https://github.com/weiruihhh/cs336_note_and_hw)——本仓库的作业学习与实现参考了该作者的 CS336 学习记录（笔记 + 作业代码）
 - 数据集：TinyStories（[hf-mirror.com](https://hf-mirror.com) 镜像下载）
 

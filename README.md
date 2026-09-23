@@ -105,6 +105,19 @@ python train.py --data_path data/tinystories_100m.txt --tokenizer_path tokenizer
 - 踩坑：① `def forward` 嵌套进 `__init__`（hw2-2 同款坑复发）② 缺最后一层 Linear（`[:-1]` 后直接 log_softmax，输出 128 维对不上 10 类标签）③ `bucket_size_bytes` 未做 MB→字节换算 ④ `apend` 拼写 ⑤ `_reigster_hook` 定义与 `_register_hook` 调用不匹配 ⑥ `torch.autograd.Variable._execution_engine.queue_callback` 私有 API 在 torch 2.12 可用
 - ⏳ 待办：接入官方 `get_ddp` / `ddp_on_after_backward` 适配器跑 test_ddp.py；计时对比 naive vs bucketed overlap 的通信重叠收益（writeup 材料）
 
+#### Triton 教程（扩展学习）
+
+Triton GPU kernel 编程入门（参考 [triton-lang/triton 官方教程](https://github.com/triton-lang/triton/tree/main/python/tutorials)），代码在 `chapter2/flah_atten/`：
+
+| 文件 | 内容 | 状态 |
+|------|------|------|
+| `vector_add.py` | 01-vector-add：向量加法 kernel（SPMD 模型、grid 启动、掩码越界保护） | ✅ A100 跑通 |
+| `test_vector_add.py` | vector_add 驱动：torch 对拍 + do_bench 带宽对比（64M 元素 ~1750 GB/s） | ✅ A100 跑通 |
+| `flah_attn.py` | 06-fused-attention：FlashAttention 完整 fused 前向+反向（online softmax + STAGE 技巧 + 5 kernel + autograd.Function） | ✅ A100 跑通（causal/非 causal 两种模式） |
+
+- 踩坑（flah_attn.py 共 12 处）：`multiple_oof`/`trill`/`stroe` 等拼写 9 处、epilogue 缩进在 `if STAGE==3` 内（非 causal 永不写 O）、qT 指针块方向写反、前向 BLOCK_SIZE_KV=128 不整除 BLOCK_SIZE_Q=32 致对角块左侧越界扫入"未来"key、`offs_q[: None]` 冒号后空格被解析为完整切片 `[:]`（recurring — hw1 同款坑）
+- 注：Triton 需要 NVIDIA GPU ≥ Volta (CC 7.0+) + Linux，本地 MX230 (Pascal) 跑不了，全部在 A100 上验证
+
 ### Chapter 3 · Scaling Laws（isoFLOP 曲线）
 
 | 作业 | 内容 | 文件 | 状态 |
@@ -121,7 +134,12 @@ python train.py --data_path data/tinystories_100m.txt --tokenizer_path tokenizer
 
 ## 参考资料
 
-- 官方讲义与代码：[stanford-cs336/assignment1-basics](https://github.com/stanford-cs336/assignment1-basics)
+- 官方讲义与代码：
+  - Assignment 1（Basics）：[stanford-cs336/assignment1-basics](https://github.com/stanford-cs336/assignment1-basics)
+  - Assignment 2（Systems）：[stanford-cs336/assignment2-systems](https://github.com/stanford-cs336/assignment2-systems)
+  - Assignment 3：链接待补充
+  - Assignment 4：暂不做
+  - Assignment 5：链接待补充
 - 学习思路与代码参考：[weiruihhh/cs336_note_and_hw](https://github.com/weiruihhh/cs336_note_and_hw)——本仓库的作业学习与实现参考了该作者的 CS336 学习记录（笔记 + 作业代码）
 - 数据集：TinyStories（[hf-mirror.com](https://hf-mirror.com) 镜像下载）
 

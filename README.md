@@ -64,6 +64,25 @@ python train.py --data_path data/tinystories_100m.txt --tokenizer_path tokenizer
     --seq_len 512 --batch_size 32 --epochs 3 --fp16 --log_every 50
 ```
 
+#### DeepSeek-V3 MLA 从零实现（扩展练习，参考 [VizuaraAILabs/DeepSeek-From-Scratch](https://github.com/VizuaraAILabs/DeepSeek-From-Scratch)）
+
+无 RoPE 版 Multi-head Latent Attention（MLA）：K/V 先压缩成低维 latent，推理时 KV cache 只存 latent。
+
+| 文件 | 内容 |
+|------|------|
+| `chapter1/DeepSeek-v3-MLA/MLAWithoutRoPE.py` | MLA 主体（KV 压缩 + 吸收技巧把 `W_q` 折进 `W_uk`）+ 增量解码 cache + 3 个 demo |
+| `chapter1/DeepSeek-v3-MLA/test_mla_reference.py` | 对照验证：吸收形式 vs 显式物化 K 的标准 MHA（prefill / 逐 token 解码 / 权重更新三条路径） |
+| `chapter1/DeepSeek-v3-MLA/bench_mla_cache.py` | 效果量化：KV cache 每 token 元素数、长上下文显存、解码延迟 |
+
+A100 实测（2026-10-05）：
+- **正确性**：与参考实现最大差异 fp32 1.8e-07 / fp16 4.9e-04；cache 逐元素完全一致（0.0）；增量解码与一次性前向一致（2.5e-07）
+- **KV cache 压缩比**（每 token 元素数）：本 demo 配置 **4.0×**（1024→256）；DeepSeek-V2 规模 20×；V3 规模 28×——MLA 所有 head **共享一份** latent，head 越多压缩越狠
+- **128K 上下文 cache**：MLA 0.06 GB/层 vs MHA 0.25 GB/层（demo 配置，fp16）
+- **解码延迟**：1.84 ms/token（fp16，A100）
+
+踩坑（7 处，其中 3 处**不报错但结果错**）：
+① `ahsorbed_k` 拼写 → AttributeError ② 整个 forward 嵌在 `if self.absorbed_k is None:` 里 → 第二次调用直接返回 None ③ **吸收矩阵**写成 `W_q.weight @ W_uk.weight`——把 W_q 的输入维和 W_uk 的输出维配对收缩了；两边都是 d_model，形状恰好凑得上、不报错但全错。正解是每个 head 单独切**输出行**、沿 head 内维 dh 收缩：`A_h = W_q_h^T @ W_uk_h` ④ 吸收后 **x 要保持完整 d_model 维**，不能按 head 切成 dh（每个 head 的 query 都由全部输入特征生成，head 选择已含在 `A_h` 里） ⑤ `v.full` 拼写 ⑥ `LayerNorm(d_model)` 却作用在 latent 维张量上 ⑦ 吸收矩阵缓存成 buffer → 训练时权重每步更新，缓存失效
+
 ### Chapter 2 · Assignment 2: Systems
 
 | 作业 | 内容 | 文件 | 状态 |
@@ -118,6 +137,20 @@ Triton GPU kernel 编程入门（参考 [triton-lang/triton 官方教程](https:
 - 踩坑（flah_attn.py 共 12 处）：`multiple_oof`/`trill`/`stroe` 等拼写 9 处、epilogue 缩进在 `if STAGE==3` 内（非 causal 永不写 O）、qT 指针块方向写反、前向 BLOCK_SIZE_KV=128 不整除 BLOCK_SIZE_Q=32 致对角块左侧越界扫入"未来"key、`offs_q[: None]` 冒号后空格被解析为完整切片 `[:]`（recurring — hw1 同款坑）
 - 注：Triton 需要 NVIDIA GPU ≥ Volta (CC 7.0+) + Linux，本地 MX230 (Pascal) 跑不了，全部在 A100 上验证
 
+#### DeepSeek-V3 并行 / MoE 从零实现（扩展练习，参考 [hkproj/torchfeather](https://github.com/hkproj/torchfeather)）
+
+| 文件 | 内容 | 状态 |
+|------|------|------|
+| `chapter2/PP/TP/MoE/model_args.py` | `DeepSeekV3ModelArgs`（MLA 维度 / YaRN 参数 / MoE 配置）+ `get_nparams_and_flops`（dense / sparse / active 参数量与 FLOPs 估算） | ✅ |
+| `chapter2/PP/TP/MoE/rope.py` | 复数实现 RoPE（`view_as_complex` 旋转 + `view_as_real` 还原）+ `apply_rotary_emb` | 🔶 缺 YaRN 缩放 |
+| `moe.py` | MoE router + routed/shared experts | ⏳ 待写 |
+
+已知问题 / 待办：
+- **`rope.py` 的 YaRN 长上下文缩放未实现**：读了 `beta_fast` / `beta_slow` / `rope_factor` 但从未使用（`import math` 也是死代码）——`max_seq_len=16384 > original_seq_len=4096`，官方实现必然走 YaRN 分支；缺了就是纯外推，长上下文位置编码会退化
+- `freqs_cis` 需**调用方按位置切片**：增量解码第 `start_pos` 个 token 必须取 `freqs_cis[start_pos:start_pos+1]`，否则位置全错且不报错
+- `mscale` 属于 MLA 的 softmax scale（不在 rope 里）：`max_seq_len > original_seq_len` 时 `scale *= (0.1·mscale·ln(rope_factor) + 1)^2`，写 attention 时别漏
+- 导入链：现改为平铺导入（`from model_args import ...`）；`model_args.py` 的 `from model.moe import MoEArgs` 待改成 `from moe import ...`，且 `moe.py` 尚未创建 → 目前导入不通
+
 ### Chapter 3 · Scaling Laws（isoFLOP 曲线）
 
 | 作业 | 内容 | 文件 | 状态 |
@@ -141,6 +174,10 @@ Triton GPU kernel 编程入门（参考 [triton-lang/triton 官方教程](https:
   - Assignment 4：暂不做
   - Assignment 5（Alignment）：[stanford-cs336/assignment5-alignment](https://github.com/stanford-cs336/assignment5-alignment)
 - 学习思路与代码参考：[weiruihhh/cs336_note_and_hw](https://github.com/weiruihhh/cs336_note_and_hw)——本仓库的作业学习与实现参考了该作者的 CS336 学习记录（笔记 + 作业代码）
+- 扩展练习参考实现：
+  - Llama 2：[hkproj/pytorch-llama](https://github.com/hkproj/pytorch-llama)
+  - DeepSeek-V3 MLA：[VizuaraAILabs/DeepSeek-From-Scratch](https://github.com/VizuaraAILabs/DeepSeek-From-Scratch)
+  - DeepSeek-V3 并行 / MoE：[hkproj/torchfeather](https://github.com/hkproj/torchfeather)
 - 数据集：TinyStories（[hf-mirror.com](https://hf-mirror.com) 镜像下载）
 
 ## 环境

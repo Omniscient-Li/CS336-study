@@ -79,7 +79,6 @@ python train.py --data_path data/tinystories_100m.txt --tokenizer_path tokenizer
 - **正确性**：FP32 / FP16 / BF16 各 3 组配置，共 **9 组全部通过**；覆盖 `d_rope != d_head`、单 token 和非整块序列长度。
 - **与参考实现的最大输出误差**：FP32 1.49e-07 / FP16 2.44e-04 / BF16 1.95e-03；输入及全部参数梯度对照通过。
 - **训练验证**：因果遮罩验证通过；带 dropout 的 BF16 autocast + AdamW 连续 3 步，梯度有限且参数实际更新。示例输入/输出均为 `(4, 64, 512)`，CUDA 前向和反向成功。
-- **修复**：`d_head` 初始化与变量拼写、输出层命名、RoPE 分支维度、按 `sqrt(d_head + d_rope)` 缩放、各头共享位置 Key，以及 FP32 注意力分数累积和 softmax。
 - **实现范围**：此版会显式展开内容 K/V，尚未实现压缩 KV cache、权重吸收、Query 压缩或 YaRN；以下无 RoPE 版的缓存压缩比和解码延迟不适用于此版。
 
 运行示例（从仓库根目录执行，需要安装支持 CUDA 的 PyTorch）：
@@ -101,8 +100,6 @@ python chapter1/DeepSeek-v3-MLA/test_deepseek_mla.py --device cpu
 - **128K 上下文 cache**：MLA 0.06 GB/层 vs MHA 0.25 GB/层（demo 配置，fp16）
 - **解码延迟**：1.84 ms/token（fp16，A100）
 
-踩坑（7 处，其中 3 处**不报错但结果错**）：
-① `ahsorbed_k` 拼写 → AttributeError ② 整个 forward 嵌在 `if self.absorbed_k is None:` 里 → 第二次调用直接返回 None ③ **吸收矩阵**写成 `W_q.weight @ W_uk.weight`——把 W_q 的输入维和 W_uk 的输出维配对收缩了；两边都是 d_model，形状恰好凑得上、不报错但全错。正解是每个 head 单独切**输出行**、沿 head 内维 dh 收缩：`A_h = W_q_h^T @ W_uk_h` ④ 吸收后 **x 要保持完整 d_model 维**，不能按 head 切成 dh（每个 head 的 query 都由全部输入特征生成，head 选择已含在 `A_h` 里） ⑤ `v.full` 拼写 ⑥ `LayerNorm(d_model)` 却作用在 latent 维张量上 ⑦ 吸收矩阵缓存成 buffer → 训练时权重每步更新，缓存失效
 
 ### Chapter 2 · Assignment 2: Systems
 

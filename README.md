@@ -66,15 +66,36 @@ python train.py --data_path data/tinystories_100m.txt --tokenizer_path tokenizer
 
 #### DeepSeek-V3 MLA 从零实现（扩展练习，参考 [VizuaraAILabs/DeepSeek-From-Scratch](https://github.com/VizuaraAILabs/DeepSeek-From-Scratch)）
 
-无 RoPE 版 Multi-head Latent Attention（MLA）：K/V 先压缩成低维 latent，推理时 KV cache 只存 latent。
+包含无 RoPE 版和带解耦 RoPE 的简化 Multi-head Latent Attention（MLA）。无 RoPE 版支持低维 latent KV cache；带 RoPE 版用于全序列因果注意力的前向和训练验证。
 
 | 文件 | 内容 |
 |------|------|
 | `chapter1/DeepSeek-v3-MLA/MLAWithoutRoPE.py` | MLA 主体（KV 压缩 + 吸收技巧把 `W_q` 折进 `W_uk`）+ 增量解码 cache + 3 个 demo |
-| `chapter1/DeepSeek-v3-MLA/test_mla_reference.py` | 对照验证：吸收形式 vs 显式物化 K 的标准 MHA（prefill / 逐 token 解码 / 权重更新三条路径） |
-| `chapter1/DeepSeek-v3-MLA/bench_mla_cache.py` | 效果量化：KV cache 每 token 元素数、长上下文显存、解码延迟 |
+| `chapter1/DeepSeek-v3-MLA/DeepSeek-MLA.py` | 内容 K/V latent 压缩 + 解耦 RoPE（各头共享位置 Key）+ 因果遮罩；支持 CUDA 前向/反向示例 |
+| `chapter1/DeepSeek-v3-MLA/test_deepseek_mla.py` | 与拼接 Q/K 的 PyTorch SDPA 参考实现对照：输出、输入/参数梯度、因果性、RoPE、非法输入，以及带 dropout 的混合精度优化步骤 |
 
-A100 实测（2026-10-05）：
+带解耦 RoPE 版 A100 实测（2026-10-08）：
+- **环境**：NVIDIA A100-SXM4-80GB，PyTorch 2.12.0+cu130，CUDA 13.0。
+- **正确性**：FP32 / FP16 / BF16 各 3 组配置，共 **9 组全部通过**；覆盖 `d_rope != d_head`、单 token 和非整块序列长度。
+- **与参考实现的最大输出误差**：FP32 1.49e-07 / FP16 2.44e-04 / BF16 1.95e-03；输入及全部参数梯度对照通过。
+- **训练验证**：因果遮罩验证通过；带 dropout 的 BF16 autocast + AdamW 连续 3 步，梯度有限且参数实际更新。示例输入/输出均为 `(4, 64, 512)`，CUDA 前向和反向成功。
+- **修复**：`d_head` 初始化与变量拼写、输出层命名、RoPE 分支维度、按 `sqrt(d_head + d_rope)` 缩放、各头共享位置 Key，以及 FP32 注意力分数累积和 softmax。
+- **实现范围**：此版会显式展开内容 K/V，尚未实现压缩 KV cache、权重吸收、Query 压缩或 YaRN；以下无 RoPE 版的缓存压缩比和解码延迟不适用于此版。
+
+运行示例（从仓库根目录执行，需要安装支持 CUDA 的 PyTorch）：
+
+```bash
+python chapter1/DeepSeek-v3-MLA/DeepSeek-MLA.py --device cuda
+python chapter1/DeepSeek-v3-MLA/test_deepseek_mla.py --device cuda --require-a100
+```
+
+本地 CPU 对照验证：
+
+```bash
+python chapter1/DeepSeek-v3-MLA/test_deepseek_mla.py --device cpu
+```
+
+无 RoPE 版 A100 实测（2026-10-05）：
 - **正确性**：与参考实现最大差异 fp32 1.8e-07 / fp16 4.9e-04；cache 逐元素完全一致（0.0）；增量解码与一次性前向一致（2.5e-07）
 - **KV cache 压缩比**（每 token 元素数）：本 demo 配置 **4.0×**（1024→256）；DeepSeek-V2 规模 20×；V3 规模 28×——MLA 所有 head **共享一份** latent，head 越多压缩越狠
 - **128K 上下文 cache**：MLA 0.06 GB/层 vs MHA 0.25 GB/层（demo 配置，fp16）

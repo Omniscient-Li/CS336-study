@@ -183,6 +183,18 @@ Triton GPU kernel 编程入门（参考 [triton-lang/triton 官方教程](https:
 - 外推 C = 1e23 FLOPs → **N ≈ 70B 参数，D = C/(6N) ≈ 238B tokens**（与 Llama 3 70B / 15T tokens 的量级互相印证）
 - 踩坑：① 相对路径 `'data/...'` 取决于启动目录（数据在 `chapter3/data` 而脚本在 `chapter3/hw`）→ `Path(__file__).parent.parent` 定位 ② Windows 绝对路径单反斜杠是转义字符（SyntaxWarning，路径含 `\t`/`\n` 时会直接损坏）③ 元组漏放 parameters 字段 → final_loss 被当成 N 拟合、外推 D 全错 ④ `plt.figuer` 拼写错误
 
+### Chapter 5 Supplement · RLHF / PPO
+
+参考 [hkproj/rlhf-ppo](https://github.com/hkproj/rlhf-ppo)，学习 PPO 的 rollout、情感奖励、KL 约束、GAE 与策略/价值更新。代码与运行说明：[chapter5-supplement/rlhf-ppo](chapter5-supplement/rlhf-ppo/)。
+
+- 已将原例的 TRL 0.7.10 训练脚本迁移到 **TRL 1.12.0** 的 `trl.experimental.ppo` 接口；1.13.0 起已移除 PPO，因此固定到最后提供该接口的版本。
+- 保留原仓库的逐行注释源码与 `Slides.pdf`，旧版注释用于阅读，新版 `gpt_sentiment.py` 用于实际运行。
+- **A100-SXM4-80GB 实测（2026-10-09）**：BF16，IMDB 25,000 条训练影评经原例长度过滤后为 24,895 条，留出 128 条，使用 24,767 个训练提示；完成 **387 次 PPO 更新**，耗时 **17 分 23 秒**，模型保存与重新加载通过。
+- **测试集评估（256 个未见提示）**：正面判定比例 **55.9% → 95.3%**，平均 POSITIVE logit **0.247 → 2.249**。评分使用训练时同一情感分类器，衡量情感目标改善；不代表独立的语言质量评测。
+- **本地验证**：5 项离线测试通过，覆盖分词器转换、奖励、数据处理、真实 PPO 更新及模型保存/加载。
+
+安装、短训练验证、完整训练及结果文件见 [PPO README](chapter5-supplement/rlhf-ppo/README.md)。
+
 ## 参考资料
 
 - 官方讲义与代码：
@@ -196,6 +208,7 @@ Triton GPU kernel 编程入门（参考 [triton-lang/triton 官方教程](https:
   - Llama 2：[hkproj/pytorch-llama](https://github.com/hkproj/pytorch-llama)
   - DeepSeek-V3 MLA：[VizuaraAILabs/DeepSeek-From-Scratch](https://github.com/VizuaraAILabs/DeepSeek-From-Scratch)
   - DeepSeek-V3 并行 / MoE：[hkproj/torchfeather](https://github.com/hkproj/torchfeather)
+  - RLHF / PPO：[hkproj/rlhf-ppo](https://github.com/hkproj/rlhf-ppo)
 - 数据集：TinyStories（[hf-mirror.com](https://hf-mirror.com) 镜像下载）
 
 ## 环境

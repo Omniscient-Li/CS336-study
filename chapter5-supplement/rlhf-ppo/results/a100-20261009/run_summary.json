@@ -1,0 +1,54 @@
+{
+  "gpu": "NVIDIA A100-SXM4-80GB",
+  "trl": "1.12.0",
+  "torch": "2.7.1+cu118",
+  "precision": "BF16",
+  "imdb_train_reviews": 25000,
+  "eligible_reviews": 24895,
+  "held_out_train_prompts": 128,
+  "train_prompts": 24767,
+  "episodes_processed": 24768,
+  "rollout_batch_size": 64,
+  "ppo_updates": 387,
+  "ppo_epochs_per_update": 4,
+  "seed": 42,
+  "started_at_utc": "2026-10-09T04:32:41+00:00",
+  "finished_at_utc": "2026-10-09T04:50:04+00:00",
+  "duration_seconds": 1043.0,
+  "exit_code": 0,
+  "evaluation_exit_code": 0,
+  "all_training_metrics_finite": true,
+  "model_files": {
+    "training_args.bin": 6673,
+    "merges.txt": 456318,
+    "model.safetensors": 497777280,
+    "vocab.json": 798156,
+    "config.json": 810,
+    "tokenizer.json": 3557861,
+    "special_tokens_map.json": 576,
+    "generation_config.json": 119,
+    "tokenizer_config.json": 764,
+    "added_tokens.json": 21
+  },
+  "evaluation": {
+    "dataset": "imdb test split; reviews >200 characters; 256 prompts; seed 2026",
+    "generation": "sampled; seed 42; temperature 1; top_k 0; top_p 1; max_new_tokens 16",
+    "reward": "lvwerra/distilbert-imdb POSITIVE logits and softmax",
+    "models": {
+      "initial": {
+        "positive_logit_mean": 0.24713508673812612,
+        "positive_probability_mean": 0.5628212613437427,
+        "positive_fraction": 0.55859375
+      },
+      "ppo": {
+        "positive_logit_mean": 2.249052603263408,
+        "positive_probability_mean": 0.9382945325287437,
+        "positive_fraction": 0.953125
+      }
+    },
+    "positive_logit_mean_change": 2.001917516525282,
+    "positive_probability_mean_change": 0.37547327118500107,
+    "note": "Single seeded sample per prompt; same classifier as training, not an independent quality benchmark."
+  },
+  "run_id": "imdb-full-20261009-123241"
+}

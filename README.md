@@ -159,9 +159,31 @@ Triton GPU kernel 编程入门（参考 [triton-lang/triton 官方教程](https:
 
 | 文件 | 内容 | 状态 |
 |------|------|------|
+| `chapter2/DeepSeek-v3-MoE/DeepSeek_MoE.py` | 教学版 DeepSeek-style MoE：shared/routed experts、sigmoid top-k gate、bias-only 负载均衡、BF16/FP16 autocast 和可配置训练入口 | ✅ A100 554M 参数训练通过 |
+| `chapter2/DeepSeek-v3-MoE/Sparse_MoE.py` | 标准 sparse top-k MoE：可选 noisy router、逐专家 token dispatch、BF16/FP16 autocast 和可配置训练入口 | ✅ A100 537M 参数训练通过 |
 | `chapter2/PP/TP/MoE/model_args.py` | `DeepSeekV3ModelArgs`（MLA 维度 / YaRN 参数 / MoE 配置）+ `get_nparams_and_flops`（dense / sparse / active 参数量与 FLOPs 估算） | ✅ |
 | `chapter2/PP/TP/MoE/rope.py` | 复数实现 RoPE（`view_as_complex` 旋转 + `view_as_real` 还原）+ `apply_rotary_emb` | 🔶 缺 YaRN 缩放 |
-| `moe.py` | MoE router + routed/shared experts | ⏳ 待写 |
+
+MoE A100 实测（Brev A100-SXM4-80GB，2026-10-12；PyTorch 2.12.0+cu130）：
+- **DeepSeek-style MoE**：`d_model=1024`、64 routed + 2 shared experts、top-8、hidden=4096；总参数 **553.71M**，每 token 激活参数约 **83.95M**。BF16 混合精度 + FP32 参数/AdamW 状态，随机输入上的 5 步 squared-output 优化 loss **1.08455 → 0.90962**，峰值显存 **8.34 GiB**，首步后平均 **95.5 ms/步**。
+- **Sparse MoE**：`d_model=1024`、64 experts、top-2、hidden multiplier=4；总参数 **537.26M**。BF16 混合精度 + FP32 参数/AdamW 状态，随机输入上的 5 步 squared-output 优化 loss **0.02838 → 0.00873**，峰值显存 **8.07 GiB**。可加 `--noisy-router` 测试噪声路由，5 步验证 loss **0.03032 → 0.02098**。
+- 上述是独立 MoE 层的 GPU 前向/反向/优化与路由负载验证，**使用固定随机输入和人工构造的平方输出损失，不是语言模型训练或 DeepSeek-V3 完整复现**。当前教学实现仍未加入 expert parallelism、通信、完整 Transformer 或真实语料训练。
+
+在仓库根目录执行以下命令，可在 A100 上复现：
+
+```bash
+cd ~/projects/lsn-cs336
+
+# DeepSeek-style MoE（共享专家 + bias-only 负载均衡）
+/home/shadeform/miniconda3/bin/python chapter2/DeepSeek-v3-MoE/DeepSeek_MoE.py \
+  --device cuda --require-a100 --precision bf16 --steps 5
+
+# 标准 sparse top-k MoE
+/home/shadeform/miniconda3/bin/python chapter2/DeepSeek-v3-MoE/Sparse_MoE.py \
+  --device cuda --require-a100 --precision bf16 --steps 5
+```
+
+Sparse MoE 加噪声路由：在第二条命令末尾追加 `--noisy-router`。
 
 已知问题 / 待办：
 - **`rope.py` 的 YaRN 长上下文缩放未实现**：读了 `beta_fast` / `beta_slow` / `rope_factor` 但从未使用（`import math` 也是死代码）——`max_seq_len=16384 > original_seq_len=4096`，官方实现必然走 YaRN 分支；缺了就是纯外推，长上下文位置编码会退化

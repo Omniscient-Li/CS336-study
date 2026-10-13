@@ -182,11 +182,6 @@ cd ~/projects/lsn-cs336
 
 Sparse MoE 加噪声路由：在第二条命令末尾追加 `--noisy-router`。
 
-已知问题 / 待办：
-- **`rope.py` 的 YaRN 长上下文缩放未实现**：读了 `beta_fast` / `beta_slow` / `rope_factor` 但从未使用（`import math` 也是死代码）——`max_seq_len=16384 > original_seq_len=4096`，官方实现必然走 YaRN 分支；缺了就是纯外推，长上下文位置编码会退化
-- `freqs_cis` 需**调用方按位置切片**：增量解码第 `start_pos` 个 token 必须取 `freqs_cis[start_pos:start_pos+1]`，否则位置全错且不报错
-- `mscale` 属于 MLA 的 softmax scale（不在 rope 里）：`max_seq_len > original_seq_len` 时 `scale *= (0.1·mscale·ln(rope_factor) + 1)^2`，写 attention 时别漏
-- 导入链：现改为平铺导入（`from model_args import ...`）；`model_args.py` 的 `from model.moe import MoEArgs` 待改成 `from moe import ...`，且 `moe.py` 尚未创建 → 目前导入不通
 
 ### Chapter 3 · Scaling Laws（isoFLOP 曲线）
 

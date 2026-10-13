@@ -152,7 +152,6 @@ Triton GPU kernel 编程入门（参考 [triton-lang/triton 官方教程](https:
 | `test_vector_add.py` | vector_add 驱动：torch 对拍 + do_bench 带宽对比（64M 元素 ~1750 GB/s） | ✅ A100 跑通 |
 | `flah_attn.py` | 06-fused-attention：FlashAttention 完整 fused 前向+反向（online softmax + STAGE 技巧 + 5 kernel + autograd.Function） | ✅ A100 跑通（causal/非 causal 两种模式） |
 
-- 踩坑（flah_attn.py 共 12 处）：`multiple_oof`/`trill`/`stroe` 等拼写 9 处、epilogue 缩进在 `if STAGE==3` 内（非 causal 永不写 O）、qT 指针块方向写反、前向 BLOCK_SIZE_KV=128 不整除 BLOCK_SIZE_Q=32 致对角块左侧越界扫入"未来"key、`offs_q[: None]` 冒号后空格被解析为完整切片 `[:]`（recurring — hw1 同款坑）
 - 注：Triton 需要 NVIDIA GPU ≥ Volta (CC 7.0+) + Linux，本地 MX230 (Pascal) 跑不了，全部在 A100 上验证
 
 #### DeepSeek-V3 并行 / MoE 从零实现（扩展练习，参考 [hkproj/torchfeather](https://github.com/hkproj/torchfeather)）
@@ -161,8 +160,6 @@ Triton GPU kernel 编程入门（参考 [triton-lang/triton 官方教程](https:
 |------|------|------|
 | `chapter2/DeepSeek-v3-MoE/DeepSeek_MoE.py` | 教学版 DeepSeek-style MoE：shared/routed experts、sigmoid top-k gate、bias-only 负载均衡、BF16/FP16 autocast 和可配置训练入口 | ✅ A100 554M 参数训练通过 |
 | `chapter2/DeepSeek-v3-MoE/Sparse_MoE.py` | 标准 sparse top-k MoE：可选 noisy router、逐专家 token dispatch、BF16/FP16 autocast 和可配置训练入口 | ✅ A100 537M 参数训练通过 |
-| `chapter2/PP/TP/MoE/model_args.py` | `DeepSeekV3ModelArgs`（MLA 维度 / YaRN 参数 / MoE 配置）+ `get_nparams_and_flops`（dense / sparse / active 参数量与 FLOPs 估算） | ✅ |
-| `chapter2/PP/TP/MoE/rope.py` | 复数实现 RoPE（`view_as_complex` 旋转 + `view_as_real` 还原）+ `apply_rotary_emb` | 🔶 缺 YaRN 缩放 |
 
 MoE A100 实测（Brev A100-SXM4-80GB，2026-10-12；PyTorch 2.12.0+cu130）：
 - **DeepSeek-style MoE**：`d_model=1024`、64 routed + 2 shared experts、top-8、hidden=4096；总参数 **553.71M**，每 token 激活参数约 **83.95M**。BF16 混合精度 + FP32 参数/AdamW 状态，随机输入上的 5 步 squared-output 优化 loss **1.08455 → 0.90962**，峰值显存 **8.34 GiB**，首步后平均 **95.5 ms/步**。

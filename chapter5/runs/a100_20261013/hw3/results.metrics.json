@@ -1,0 +1,7 @@
+{
+  "n": 128,
+  "accuracy": 0.1328125,
+  "format_rate": 0.4296875,
+  "boxed_accuracy": 0.1328125,
+  "truncation_rate": 0.1015625
+}

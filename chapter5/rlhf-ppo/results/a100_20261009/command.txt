@@ -1,0 +1,1 @@
+.venv-modern/bin/python -u gpt_sentiment.py --precision bf16 --output-dir RUN_DIR/model

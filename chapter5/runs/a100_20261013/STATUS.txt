@@ -1,0 +1,1 @@
+Complete: hw3, hw4, hw5 and hw7. hw7 exit code 0; 20 rollout steps and 40 optimizer updates. GPU released. See summary.json and chapter5/A100_RESULTS.md.

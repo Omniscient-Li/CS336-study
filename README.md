@@ -206,6 +206,24 @@ Sparse MoE 加噪声路由：在第二条命令末尾追加 `--noisy-router`。
 - 踩坑：① 相对路径 `'data/...'` 取决于启动目录（数据在 `chapter3/data` 而脚本在 `chapter3/hw`）→ `Path(__file__).parent.parent` 定位 ② Windows 绝对路径单反斜杠是转义字符（SyntaxWarning，路径含 `\t`/`\n` 时会直接损坏）③ 元组漏放 parameters 字段 → final_loss 被当成 N 拟合、外推 D 全错 ④ `plt.figuer` 拼写错误
 
 
+### Chapter 5 · Assignment 5: Alignment 与 RLHF
+
+| 作业 | 内容 | 文件 | A100 运行结果 |
+|---|---|---|---|
+| hw3 | Qwen2.5-Math-1.5B 基础模型评估 | [evaluate_llm.py](chapter5/hw3/evaluate_llm.py) | 严格准确率 13.28% |
+| hw4 | Response-only SFT、梯度累积 | [SFT_experiment.py](chapter5/hw4/SFT_experiment.py) | 50 次更新，准确率 46.88% |
+| hw5 | 采样、筛选正确回答、专家迭代 SFT | [expert_iteration.py](chapter5/hw5/expert_iteration.py) | 2 轮，准确率 34.38% |
+| hw7 | Group reward normalization / GRPO-Clip | [run_grpo_train_loop.py](chapter5/hw7/run_grpo_train_loop.py) | SFT 后 20 轮、40 次更新，准确率 47.66% |
+| rlhf-ppo | GPT-2 + DistilBERT 情感奖励的 IMDB PPO | [gpt_sentiment.py](chapter5/rlhf-ppo/gpt_sentiment.py) | 387 次更新；正面分类比例 55.86% → 95.31% |
+
+MATH 实验（2026-10-13）使用 A100-SXM4-80GB，统一在独立 `val.jsonl` 的前 128 题评估，要求答案及格式都正确；hw5 从基础模型独立训练，hw7 从 hw4 的 SFT 检查点开始。SFT/GRPO 官方数值测试 **24 passed**。GRPO 中途最高 49.22%，最终 47.66%，相对 SFT 净多答对 1 题，短程收益有限。配置、数据拆分及局限见 [MATH 实验报告](chapter5/A100_RESULTS.md) 和 [Chapter 5 运行说明](chapter5/README.md)。
+
+![Chapter 5 A100 results](chapter5/runs/a100_20261013/comparison.png)
+
+PPO 实验（2026-10-09）已完成 IMDB 训练，用时 17 分 23 秒；IMDB test 的 256 个提示上，平均正面概率 0.5628 → 0.9383。评分使用训练时的同一分类器，每题单次随机采样，不能当成独立文本质量评价。见 [PPO 报告与原始记录](chapter5/rlhf-ppo/A100_RESULTS.md)。
+
+代码、MATH 数据、测试快照、指标和日志均已上传；模型权重、虚拟环境和缓存不入库。Alignment 使用 Python 3.12 / PyTorch 2.5.1 / vLLM 0.7.2，PPO 使用独立环境和 TRL 1.12.0，安装命令见各目录 README。
+
 ## 参考资料
 
 - 官方讲义与代码：

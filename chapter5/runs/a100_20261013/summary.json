@@ -1,0 +1,64 @@
+{
+  "stages": [
+    {
+      "stage": "hw3 / Base",
+      "n": 128,
+      "accuracy": 0.1328125,
+      "format_rate": 0.4296875,
+      "boxed_accuracy": 0.1328125,
+      "truncation_rate": 0.1015625
+    },
+    {
+      "stage": "hw4 / SFT",
+      "n": 128,
+      "accuracy": 0.46875,
+      "format_rate": 0.921875,
+      "boxed_accuracy": 0.3984375,
+      "truncation_rate": 0.03125
+    },
+    {
+      "stage": "hw5 / Expert iteration",
+      "iteration": 2,
+      "n": 128,
+      "accuracy": 0.34375,
+      "format_rate": 0.875,
+      "boxed_accuracy": 0.0703125,
+      "truncation_rate": 0.0546875
+    },
+    {
+      "stage": "hw7 / SFT + GRPO",
+      "n": 128,
+      "accuracy": 0.4765625,
+      "format_rate": 0.9140625,
+      "truncation_rate": 0.03125
+    }
+  ],
+  "grpo_validation": [
+    {
+      "step": 0,
+      "accuracy": 0.46875
+    },
+    {
+      "step": 5,
+      "accuracy": 0.4921875
+    },
+    {
+      "step": 10,
+      "accuracy": 0.4609375
+    },
+    {
+      "step": 15,
+      "accuracy": 0.484375
+    },
+    {
+      "step": 20,
+      "accuracy": 0.4765625
+    }
+  ],
+  "grpo_elapsed_seconds": 835.1549737597816,
+  "peak_gpu_memory_mib": 45141.0,
+  "improved_vs_sft": 7,
+  "regressed_vs_sft": 6,
+  "optimizer_updates": 40,
+  "rollouts": 1280
+}
